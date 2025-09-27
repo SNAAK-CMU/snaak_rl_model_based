@@ -17,7 +17,7 @@ class RGBEnconder(nn.Module):
     
     def forward(self, x):
         x = self.feature_extractor(x)
-        x = torch.flatten(x)
+        x = torch.flatten(x, start_dim=1)
         x = self.fc(x) # convert to fc of correct size
         return x
 
@@ -44,7 +44,7 @@ class DepthEncoder(nn.Module):
         x = self.relu(self.conv3(x))
         x = self.maxpool(x)
         x = self.global_pool(x)
-        x = torch.flatten(x)
+        x = torch.flatten(x, start_dim=1)
         x = self.fc(x)
         return x
 
@@ -73,7 +73,8 @@ class ActionEncoder(nn.Module):
         return x
 
 class Model(nn.Module):
-    def __init__(self, rgb_dim=128, depth_dim=128, weight_dim=16, action_dim=32, hidden_dims=[256, 256, 128, 128]):
+    def __init__(self, rgb_dim=128, depth_dim=128, weight_dim=32, action_dim=32, hidden_dims=[256, 256, 128, 128]):
+        super().__init__()
         self.rgb_encoder = RGBEnconder(output_dim=rgb_dim)
         self.depth_encoder = DepthEncoder(output_dim=depth_dim)
         self.weight_encoder = WeightEncoder(output_dim=weight_dim)
@@ -95,7 +96,7 @@ class Model(nn.Module):
         weight_feat = self.weight_encoder(weight)
         action_feat = self.action_encoder(action)
 
-        encoding = torch.concatenate((rgb_feat, depth_feat, weight_feat, action_feat))
+        encoding = torch.concatenate((rgb_feat, depth_feat, weight_feat, action_feat), dim=1)
 
         decoding = self.decoder(encoding)
         output = self.output(decoding)

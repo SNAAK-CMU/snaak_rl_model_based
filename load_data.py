@@ -3,6 +3,17 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 import cv2
+import torchvision.transforms.functional as TF
+
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_STD  = [0.229, 0.224, 0.225]
+
+# BEFORE RUNNING GET NORM VALS:
+WEIGHT_MEAN = 103.97
+WEIGHT_STD = 50.09
+
+ACTION_MEAN = torch.tensor([0.0002, 0.0027, 0.0050, -0.0002, 0.0010, -0.0254])
+ACTION_STD = torch.tensor([0.0213, 0.0581, 0.0319, 0.0211, 0.0554, 0.0173])
 
 class NPZSequenceDataset(Dataset):
     def __init__(self, root_dir):
@@ -13,9 +24,10 @@ class NPZSequenceDataset(Dataset):
             if not os.path.isdir(subpath):
                 continue
 
-            info_path = os.path.join(subpath, "dataset_info.txt")
+            info_path = os.path.join(subpath, "dataset_notes")
             bin_number = None
             if os.path.exists(info_path):
+
                 with open(info_path, "r") as f:
                     for line in f:
                         if line.startswith("Pick Bin:"):
@@ -31,7 +43,6 @@ class NPZSequenceDataset(Dataset):
     def resize_with_padding(self, image, target_size=(380, 380), rotate=False):
         h, w = image.shape[:2]
         target_w, target_h = target_size
-
         scale = min(target_w / w, target_h / h)
         new_w, new_h = int(w * scale), int(h * scale)
 
@@ -48,6 +59,7 @@ class NPZSequenceDataset(Dataset):
                                     borderType=cv2.BORDER_CONSTANT)
         if rotate:
             padded = cv2.rotate(padded, cv2.ROTATE_90_CLOCKWISE)
+
         return padded
 
     def __len__(self):
@@ -59,12 +71,37 @@ class NPZSequenceDataset(Dataset):
         data_t = np.load(f_t)
         data_t1 = np.load(f_t1)
 
-        rotate = (data_t["bin_number"] is not None) and ((data_t["bin_number"] - 1) // 3 > 0)
+        rotate = ((bin_number - 1) // 3 > 0)
         
-        rgb_t = self.resize_with_padding(torch.from_numpy(data_t["rgb"]).float(), rotate)
-        depth_t = self.resize_with_padding(torch.from_numpy(data_t["depth"]).float(), rotate)
-        weight_t = torch.from_numpy(data_t["weight"]).float()
-        action_t = torch.from_numpy(data_t["action"]).float()
-        weight_t1 = torch.from_numpy(data_t1["weight"]).float()
+        rgb_np = self.resize_with_padding(data_t["rgb"], rotate=rotate)
+        rgb_t = torch.from_numpy(rgb_np.astype(np.float32)) / 255.0  # scale to [0,1]
+        rgb_t = rgb_t.permute(2, 0, 1)  # convert to (C, H, W)
+        rgb_t = TF.normalize(rgb_t, mean=IMAGENET_MEAN, std=IMAGENET_STD)
 
-        return rgb_t, depth_t, weight_t, action_t, weight_t1, bin_number
+        depth_np = self.resize_with_padding(data_t["depth"], rotate=rotate).astype(np.float32)
+        depth_t = torch.from_numpy(depth_np).float()
+
+        # Normalize depth: scale to [0, 1]
+        depth_min = depth_t.min()
+        depth_max = depth_t.max()
+        depth_t = (depth_t - depth_min) / (depth_max - depth_min + 1e-8)
+        
+        # For depth (likely 2D): add channel dim -> (1, H, W)
+        if depth_t.dim() == 2:
+            depth_t = depth_t.unsqueeze(0)
+        else:
+            depth_t = depth_t.permute(2, 0, 1)  # in case depth has channels
+
+        weight_t = torch.from_numpy(data_t["start_weight"]).float().unsqueeze(-1)
+
+        a1_t = data_t["a1"]
+        a2_t = data_t["a2"]
+
+        action_t = torch.from_numpy(np.concatenate((a1_t, a2_t), axis=0)).float()
+        weight_t1 = torch.from_numpy(data_t1["start_weight"]).float().unsqueeze(-1)
+        weight_t = (weight_t - WEIGHT_MEAN) / WEIGHT_STD
+        weight_t1 = (weight_t1 - WEIGHT_MEAN) / WEIGHT_STD
+
+        action_t = (action_t - ACTION_MEAN) / ACTION_STD
+        return rgb_t, depth_t, weight_t, action_t, weight_t1
+
