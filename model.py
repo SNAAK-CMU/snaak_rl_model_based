@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
 import torchvision.models as models
-
+import timm
 
 # make sure to resize to 380x380 input
-class RGBEnconder(nn.Module):
+class RGBEncoder(nn.Module):
     def __init__(self, output_dim=128):
         super().__init__()
         effecient_net = models.efficientnet_b4(weights=models.EfficientNet_B4_Weights.IMAGENET1K_V1)
@@ -48,6 +48,23 @@ class DepthEncoder(nn.Module):
         x = self.fc(x)
         return x
 
+class convnext(nn.Module):
+    def __init__(self, out_dim=128, in_chans=3):
+
+        super().__init__()
+        self.encoder = timm.create_model('convnext_tiny', pretrained=False, 
+                                         in_chans=in_chans,
+                                         num_classes=0,
+                                         global_pool='avg')
+        feature_dimension = self.encoder.num_features
+        self.fc = nn.Linear(feature_dimension, out_dim)
+
+    def forward(self, x):
+        x = self.encoder(x)
+        x = self.proj(x)
+        return x
+
+
 class WeightEncoder(nn.Module):
     def __init__(self, output_dim=32):
         super().__init__()
@@ -75,8 +92,10 @@ class ActionEncoder(nn.Module):
 class Model(nn.Module):
     def __init__(self, rgb_dim=128, depth_dim=128, weight_dim=32, action_dim=32, hidden_dims=[256, 256, 128, 128]):
         super().__init__()
-        self.rgb_encoder = RGBEnconder(output_dim=rgb_dim)
-        self.depth_encoder = DepthEncoder(output_dim=depth_dim)
+        # self.rgb_encoder = RGBEncoder(output_dim=rgb_dim)
+        # self.depth_encoder = DepthEncoder(output_dim=depth_dim)
+        self.rgb_encoder = convnext(out_dim=rgb_dim, in_chans=3)
+        self.depth_encoder = convnext(out_dim=depth_dim, in_chans=1)
         self.weight_encoder = WeightEncoder(output_dim=weight_dim)
         self.action_encoder = ActionEncoder(output_dim=action_dim)
 
