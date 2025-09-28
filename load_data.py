@@ -65,7 +65,7 @@ BIN_COORDS = [
 ]
 
 class NPZSequenceDataset(Dataset):
-    def __init__(self, root_dir, weight_mean, weight_std, action_mean, action_std, depth_man, depth_std):
+    def __init__(self, root_dir):
         self.samples = []
 
         for subdir in sorted(os.listdir(root_dir)):
