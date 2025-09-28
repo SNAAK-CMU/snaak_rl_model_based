@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 
-
 # make sure to resize to 380x380 input
 class RGBEncoder(nn.Module):
     def __init__(self, output_dim=128):

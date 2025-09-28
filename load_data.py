@@ -18,6 +18,52 @@ ACTION_STD = torch.tensor([0.0213, 0.0581, 0.0319, 0.0211, 0.0554, 0.0173])
 DEPTH_MEAN = [10.0]
 DEPTH_STD = [10.0]
 
+BIN2_XMIN = 250
+BIN2_YMIN = 0
+BIN2_XMAX = 470
+BIN2_YMAX = 340
+
+# Bin1 coords
+BIN1_XMIN = 240
+BIN1_YMIN = 0
+BIN1_XMAX = 450
+BIN1_YMAX = 330
+
+# Bin3 coords 
+BIN3_XMIN = 355 
+BIN3_YMIN = 0 
+BIN3_XMAX = 565  
+BIN3_YMAX = 330 
+
+# Bin 4 coords
+BIN4_XMIN = 81
+BIN4_YMIN = 66
+BIN4_XMAX = 440
+BIN4_YMAX = 297
+
+# Bin 5 coords
+BIN5_XMIN = 67
+BIN5_YMIN = 72
+BIN5_XMAX = 434
+BIN5_YMAX = 305
+
+# Bin 6 coords
+BIN6_XMIN = 69
+BIN6_YMIN = 94
+BIN6_XMAX = 433
+BIN6_YMAX = 316
+
+# BIN_COORDS
+BIN_COORDS = [
+    [BIN1_XMIN, BIN1_YMIN, BIN1_XMAX, BIN1_YMAX],
+    [BIN2_XMIN, BIN2_YMIN, BIN2_XMAX, BIN2_YMAX],
+    [BIN3_XMIN, BIN3_YMIN, BIN3_XMAX, BIN3_YMAX]
+    [BIN3_XMIN, BIN3_YMIN, BIN3_XMAX, BIN3_YMAX],
+    [BIN4_XMIN, BIN4_YMIN, BIN4_XMAX, BIN4_YMAX],
+    [BIN5_XMIN, BIN5_YMIN, BIN5_XMAX, BIN5_YMAX],
+    [BIN6_XMIN, BIN6_YMIN, BIN6_XMAX, BIN6_YMAX],
+]
+
 class NPZSequenceDataset(Dataset):
     def __init__(self, root_dir, weight_mean, weight_std, action_mean, action_std, depth_man, depth_std):
         self.samples = []
@@ -43,27 +89,24 @@ class NPZSequenceDataset(Dataset):
                 f_t1 = os.path.join(subpath, npz_files[i+1])
                 self.samples.append((f_t, f_t1, bin_number))
                            
-    def resize_with_padding(self, image, target_size=(380, 380), rotate=False):
+    def resize_with_mask(self, image, bin_number, target_size=(380, 380), rotate=False):
         h, w = image.shape[:2]
-        target_w, target_h = target_size
-        scale = min(target_w / w, target_h / h)
-        new_w, new_h = int(w * scale), int(h * scale)
 
-        resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+        # --- create mask ---
+        mask = np.zeros((h, w), dtype=np.uint8)
 
-        pad_w = target_w - new_w
-        pad_h = target_h - new_h
-        top = pad_h // 2
-        bottom = pad_h - top
-        left = pad_w // 2
-        right = pad_w - left
+        xmin, ymin, xmax, ymax = BIN_COORDS[bin_number-1]
+        mask[ymin:ymax, xmin:xmax] = 255 
 
-        padded = cv2.copyMakeBorder(resized, top, bottom, left, right,
-                                    borderType=cv2.BORDER_CONSTANT)
+        masked_img = cv2.bitwise_and(image, image, mask=mask)
+
+        resized = cv2.resize(masked_img, target_size, interpolation=cv2.INTER_AREA)
+
         if rotate:
-            padded = cv2.rotate(padded, cv2.ROTATE_90_CLOCKWISE)
+            resized = cv2.rotate(resized, cv2.ROTATE_90_CLOCKWISE)
 
-        return padded
+        return resized
+
 
     def __len__(self):
         return len(self.samples)
@@ -75,13 +118,12 @@ class NPZSequenceDataset(Dataset):
         data_t1 = np.load(f_t1)
 
         rotate = ((bin_number - 1) // 3 > 0)
-        
-        rgb_np = self.resize_with_padding(data_t["rgb"], rotate=rotate)
+        rgb_np = self.resize_with_mask(data_t["rgb"], bin_number, rotate=rotate)
         rgb_t = torch.from_numpy(rgb_np.astype(np.float32)) / 255.0  # scale to [0,1]
         rgb_t = rgb_t.permute(2, 0, 1)  # convert to (C, H, W)
         rgb_t = TF.normalize(rgb_t, mean=IMAGENET_MEAN, std=IMAGENET_STD)
 
-        depth_np = self.resize_with_padding(data_t["depth"], rotate=rotate).astype(np.float32)
+        depth_np = self.resize_with_mask(data_t["depth"], bin_number, rotate=rotate).astype(np.float32)
         depth_t = torch.from_numpy(depth_np).float()
         
         # For depth (likely 2D): add channel dim -> (1, H, W)
