@@ -5,7 +5,7 @@ from torch.utils.data import Dataset
 import cv2
 import torchvision.transforms.functional as TF
 
-IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_MEAN = [0.485, 0.456, 0.406] # keep these for now, in future can recompute with own dataset
 IMAGENET_STD  = [0.229, 0.224, 0.225]
 
 # BEFORE RUNNING GET NORM VALS:
@@ -15,8 +15,11 @@ WEIGHT_STD = 50.09
 ACTION_MEAN = torch.tensor([0.0002, 0.0027, 0.0050, -0.0002, 0.0010, -0.0254])
 ACTION_STD = torch.tensor([0.0213, 0.0581, 0.0319, 0.0211, 0.0554, 0.0173])
 
+DEPTH_MEAN = [10.0]
+DEPTH_STD = [10.0]
+
 class NPZSequenceDataset(Dataset):
-    def __init__(self, root_dir):
+    def __init__(self, root_dir, weight_mean, weight_std, action_mean, action_std, depth_man, depth_std):
         self.samples = []
 
         for subdir in sorted(os.listdir(root_dir)):
@@ -80,17 +83,14 @@ class NPZSequenceDataset(Dataset):
 
         depth_np = self.resize_with_padding(data_t["depth"], rotate=rotate).astype(np.float32)
         depth_t = torch.from_numpy(depth_np).float()
-
-        # Normalize depth: scale to [0, 1]
-        depth_min = depth_t.min()
-        depth_max = depth_t.max()
-        depth_t = (depth_t - depth_min) / (depth_max - depth_min + 1e-8)
         
         # For depth (likely 2D): add channel dim -> (1, H, W)
         if depth_t.dim() == 2:
             depth_t = depth_t.unsqueeze(0)
         else:
             depth_t = depth_t.permute(2, 0, 1)  # in case depth has channels
+
+        depth_t = TF.normalize(depth_t, DEPTH_MEAN, DEPTH_STD)
 
         weight_t = torch.from_numpy(data_t["start_weight"]).float().unsqueeze(-1)
 
@@ -99,6 +99,7 @@ class NPZSequenceDataset(Dataset):
 
         action_t = torch.from_numpy(np.concatenate((a1_t, a2_t), axis=0)).float()
         weight_t1 = torch.from_numpy(data_t1["start_weight"]).float().unsqueeze(-1)
+
         weight_t = (weight_t - WEIGHT_MEAN) / WEIGHT_STD
         weight_t1 = (weight_t1 - WEIGHT_MEAN) / WEIGHT_STD
 

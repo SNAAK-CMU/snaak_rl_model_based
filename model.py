@@ -11,7 +11,7 @@ class RGBEnconder(nn.Module):
         self.feature_extractor = nn.Sequential(
             effecient_net.features,
             effecient_net.avgpool
-            ) # use all but last FC layer
+            ) # use everything but classifier
         in_features = effecient_net.classifier[1].in_features # number of features that go into first layer of normal effecient net architecture
         self.fc = nn.Linear(in_features, output_dim)
     
@@ -49,7 +49,7 @@ class DepthEncoder(nn.Module):
         return x
 
 class WeightEncoder(nn.Module):
-    def __init__(self, output_dim=32):
+    def __init__(self, output_dim=16):
         super().__init__()
         self.relu = nn.ReLU()
         self.fc1 = nn.Linear(1, 16)
@@ -73,7 +73,7 @@ class ActionEncoder(nn.Module):
         return x
 
 class Model(nn.Module):
-    def __init__(self, rgb_dim=128, depth_dim=128, weight_dim=32, action_dim=32, hidden_dims=[256, 256, 128, 128]):
+    def __init__(self, rgb_dim=128, depth_dim=128, weight_dim=16, action_dim=32, hidden_dims=[256, 256, 128, 128]):
         super().__init__()
         self.rgb_encoder = RGBEnconder(output_dim=rgb_dim)
         self.depth_encoder = DepthEncoder(output_dim=depth_dim)
