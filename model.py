@@ -4,7 +4,7 @@ import torchvision.models as models
 
 
 # make sure to resize to 380x380 input
-class RGBEnconder(nn.Module):
+class RGBEncoder(nn.Module):
     def __init__(self, output_dim=128):
         super().__init__()
         effecient_net = models.efficientnet_b4(weights=models.EfficientNet_B4_Weights.IMAGENET1K_V1)
@@ -75,7 +75,7 @@ class ActionEncoder(nn.Module):
 class Model(nn.Module):
     def __init__(self, rgb_dim=128, depth_dim=128, weight_dim=16, action_dim=32, hidden_dims=[256, 256, 128, 128]):
         super().__init__()
-        self.rgb_encoder = RGBEnconder(output_dim=rgb_dim)
+        self.rgb_encoder = RGBEncoder(output_dim=rgb_dim)
         self.depth_encoder = DepthEncoder(output_dim=depth_dim)
         self.weight_encoder = WeightEncoder(output_dim=weight_dim)
         self.action_encoder = ActionEncoder(output_dim=action_dim)
