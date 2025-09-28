@@ -87,7 +87,12 @@ class NPZSequenceDataset(Dataset):
             for i in range(len(npz_files) - 1):
                 f_t = os.path.join(subpath, npz_files[i])
                 f_t1 = os.path.join(subpath, npz_files[i+1])
-                self.samples.append((f_t, f_t1, bin_number))
+                weight_t = np.load(f_t)["start_weight"]
+                weight_t1 = np.load(f_t1)["start_weight"]
+                
+                # Only keep transition if weight decreases or stays the same
+                if weight_t1 <= weight_t:
+                    self.samples.append((f_t, f_t1, bin_number))
                            
     def resize_with_mask(self, image, bin_number, target_size=(380, 380), rotate=False):
         h, w = image.shape[:2]
