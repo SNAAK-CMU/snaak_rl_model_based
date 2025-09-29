@@ -11,7 +11,6 @@ depths = []
 
 for rgb, depth, weight, action, next_weight in loader:
     weights.append(weight)
-    weights.append(next_weight)
     actions.append(action)
     depths.append(depth)
 
@@ -29,6 +28,7 @@ action_std = all_actions.std(dim=0)
 depth_mean = all_depths.mean()
 depth_std = all_depths.std()
 
+print(all_weights.sum().item())
 print("Weight mean/std:", weight_mean.item(), weight_std.item())
 print("Action mean/std:", action_mean, action_std)
 print("Depth mean/std:", depth_mean.item(), depth_std.item())

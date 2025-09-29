@@ -6,8 +6,8 @@ from torch.utils.data import DataLoader, random_split
 from load_data import NPZSequenceDataset
 from tqdm import tqdm
 
-EPOCHS = 20
-BATCH_SIZE = 4
+EPOCHS = 50
+BATCH_SIZE = 8
 DATA_DIR = "rl_dataset"
 LR = 1e-3
 CHECKPOINT_PATH = "best_model.pth"
@@ -25,7 +25,7 @@ if __name__ == "__main__":
 
     # Dataset + split
     dataset = NPZSequenceDataset(DATA_DIR)
-    train_size = int(0.8 * len(dataset))
+    train_size = int(0.9 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
