@@ -89,29 +89,21 @@ class NPZSequenceDataset(Dataset):
                 f_t1 = os.path.join(subpath, npz_files[i+1])
                 weight_t = np.load(f_t)["start_weight"]
                 weight_t1 = np.load(f_t1)["start_weight"]
-                
+
                 # Only keep transition if weight decreases or stays the same
                 if weight_t1 <= weight_t:
                     self.samples.append((f_t, f_t1, bin_number))
                            
-    def resize_with_mask(self, image, bin_number, target_size=(380, 380), rotate=False):
-        h, w = image.shape[:2]
-
-        # --- create mask ---
-        mask = np.zeros((h, w), dtype=np.uint8)
-
+    def crop_with_mask(self, image, bin_number, rotate=False):
         xmin, ymin, xmax, ymax = BIN_COORDS[bin_number-1]
-        mask[ymin:ymax, xmin:xmax] = 255 
-
-        masked_img = cv2.bitwise_and(image, image, mask=mask)
-
-        resized = cv2.resize(masked_img, target_size, interpolation=cv2.INTER_AREA)
+        cropped = image[ymin:ymax, xmin:xmax]
 
         if rotate:
-            resized = cv2.rotate(resized, cv2.ROTATE_90_CLOCKWISE)
+            cropped = cv2.rotate(cropped, cv2.ROTATE_90_CLOCKWISE)
 
-        return resized
-
+        cv2.imshow("Image", cropped)
+        cv2.waitKey(0)
+        return cropped
 
     def __len__(self):
         return len(self.samples)

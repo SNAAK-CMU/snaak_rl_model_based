@@ -2,22 +2,29 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 
-# make sure to resize to 380x380 input
 class RGBEncoder(nn.Module):
     def __init__(self, output_dim=128):
         super().__init__()
-        effecient_net = models.efficientnet_b4(weights=models.EfficientNet_B4_Weights.IMAGENET1K_V1)
-        self.feature_extractor = nn.Sequential(
-            effecient_net.features,
-            effecient_net.avgpool
-            ) # use everything but classifier
-        in_features = effecient_net.classifier[1].in_features # number of features that go into first layer of normal effecient net architecture
+        # Load pretrained ResNet-50
+        resnet = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V2)
+
+        # Use all layers except the final avgpool + fc
+        self.feature_extractor = nn.Sequential(*list(resnet.children())[:-2])
+
+        # ResNet-50 final feature dimension before FC
+        in_features = resnet.fc.in_features
+
+        # Add adaptive pooling for flexible input sizes
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+
+        # Final projection layer
         self.fc = nn.Linear(in_features, output_dim)
-    
+
     def forward(self, x):
-        x = self.feature_extractor(x)
-        x = torch.flatten(x, start_dim=1)
-        x = self.fc(x) # convert to fc of correct size
+        x = self.feature_extractor(x)        # (B, C, H, W)
+        x = self.pool(x)                     # (B, C, 1, 1)
+        x = torch.flatten(x, start_dim=1)    # (B, C)
+        x = self.fc(x)                       # (B, output_dim)
         return x
 
 # Resize depth to something smaller, efficientnet-B4 has a 380x380 input, so something similar or smaller
