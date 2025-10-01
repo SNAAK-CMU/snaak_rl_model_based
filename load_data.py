@@ -9,14 +9,14 @@ IMAGENET_MEAN = [0.485, 0.456, 0.406] # keep these for now, in future can recomp
 IMAGENET_STD  = [0.229, 0.224, 0.225]
 
 # BEFORE RUNNING GET NORM VALS:
-WEIGHT_MEAN = 103.97
-WEIGHT_STD = 50.09
+WEIGHT_MEAN = 91.89
+WEIGHT_STD = 50.48
 
-ACTION_MEAN = torch.tensor([0.0002, 0.0027, 0.0050, -0.0002, 0.0010, -0.0254])
-ACTION_STD = torch.tensor([0.0213, 0.0581, 0.0319, 0.0211, 0.0554, 0.0173])
+ACTION_MEAN = torch.tensor([0.0000, 0.00, 0.00, 0.00, 0.000, 0.00]) # uniform sampling
+ACTION_STD = torch.tensor([0.0201, 0.0554, 0.0317, 0.0201, 0.0550, 0.0154])
 
-DEPTH_MEAN = [10.0]
-DEPTH_STD = [10.0]
+DEPTH_MEAN = [62.04]
+DEPTH_STD = [133.09]
 
 BIN2_XMIN = 250
 BIN2_YMIN = 0
