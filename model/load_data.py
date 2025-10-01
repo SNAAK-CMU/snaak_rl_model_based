@@ -9,14 +9,14 @@ IMAGENET_MEAN = [0.485, 0.456, 0.406] # keep these for now, in future can recomp
 IMAGENET_STD  = [0.229, 0.224, 0.225]
 
 # BEFORE RUNNING GET NORM VALS:
-WEIGHT_MEAN = 91.89
-WEIGHT_STD = 50.48
+WEIGHT_MEAN = 104.62
+WEIGHT_STD = 61.09
 
-ACTION_MEAN = torch.tensor([0.0000, 0.00, 0.00, 0.00, 0.000, 0.00]) # uniform sampling
-ACTION_STD = torch.tensor([0.0201, 0.0554, 0.0317, 0.0201, 0.0550, 0.0154])
+ACTION_MEAN = torch.tensor([-0.0002, 0.0003, 0.0021, 0.0007, 0.0019, -0.0328]) # uniform sampling
+ACTION_STD = torch.tensor([0.0193, 0.0540, 0.0317, 0.0193, 0.0539, 0.0147])
 
-DEPTH_MEAN = [62.04]
-DEPTH_STD = [133.09]
+DEPTH_MEAN = [337.65]
+DEPTH_STD = [66.147]
 
 BIN2_XMIN = 250
 BIN2_YMIN = 0
@@ -58,7 +58,6 @@ BIN_COORDS = [
     [BIN1_XMIN, BIN1_YMIN, BIN1_XMAX, BIN1_YMAX],
     [BIN2_XMIN, BIN2_YMIN, BIN2_XMAX, BIN2_YMAX],
     [BIN3_XMIN, BIN3_YMIN, BIN3_XMAX, BIN3_YMAX],
-    [BIN3_XMIN, BIN3_YMIN, BIN3_XMAX, BIN3_YMAX],
     [BIN4_XMIN, BIN4_YMIN, BIN4_XMAX, BIN4_YMAX],
     [BIN5_XMIN, BIN5_YMIN, BIN5_XMAX, BIN5_YMAX],
     [BIN6_XMIN, BIN6_YMIN, BIN6_XMAX, BIN6_YMAX],
@@ -89,19 +88,26 @@ class NPZSequenceDataset(Dataset):
                 f_t1 = os.path.join(subpath, npz_files[i+1])
                 weight_t = np.load(f_t)["start_weight"]
                 weight_t1 = np.load(f_t1)["start_weight"]
+                try:
+                    np.load(f_t)["a2"]
+                except:
+                    print("Error loading", f_t)
 
                 # Only keep transition if weight decreases or stays the same
                 if weight_t1 <= weight_t:
                     self.samples.append((f_t, f_t1, bin_number))
                            
-    def crop_with_mask(self, image, bin_number, rotate=False):
+    def crop(self, image, bin_number, rotate=False):
         xmin, ymin, xmax, ymax = BIN_COORDS[bin_number-1]
         cropped = image[ymin:ymax, xmin:xmax]
-
+        # print(f"Cropping to bin {bin_number} with coords: ({xmin}, {ymin}), ({xmax}, {ymax}), rotation: {rotate}, shape : {cropped.shape}")
         if rotate:
+            #print("Rotating image for bin", bin_number)
             cropped = cv2.rotate(cropped, cv2.ROTATE_90_CLOCKWISE)
+        cropped = cv2.resize(cropped, (224, 340))
+        #cv2.imshow("Image", cropped)
+        #print(cropped.shape)
 
-        cv2.imshow("Image", cropped)
         cv2.waitKey(0)
         return cropped
 
@@ -115,12 +121,12 @@ class NPZSequenceDataset(Dataset):
         data_t1 = np.load(f_t1)
 
         rotate = ((bin_number - 1) // 3 > 0)
-        rgb_np = self.resize_with_mask(data_t["rgb"], bin_number, rotate=rotate)
+        rgb_np = self.crop(data_t["rgb"], bin_number, rotate=rotate)
         rgb_t = torch.from_numpy(rgb_np.astype(np.float32)) / 255.0  # scale to [0,1]
         rgb_t = rgb_t.permute(2, 0, 1)  # convert to (C, H, W)
         rgb_t = TF.normalize(rgb_t, mean=IMAGENET_MEAN, std=IMAGENET_STD)
 
-        depth_np = self.resize_with_mask(data_t["depth"], bin_number, rotate=rotate).astype(np.float32)
+        depth_np = self.crop(data_t["depth"], bin_number, rotate=rotate).astype(np.float32)
         depth_t = torch.from_numpy(depth_np).float()
         
         # For depth (likely 2D): add channel dim -> (1, H, W)

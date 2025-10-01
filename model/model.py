@@ -4,29 +4,40 @@ import torchvision.models as models
 
 
 class RGBEncoder(nn.Module):
-    def __init__(self, output_dim=128):
+    def __init__(self, output_dim=128, freeze_backbone=True):
         super().__init__()
         # Load pretrained ResNet-50
         resnet = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V2)
 
-        # Use all layers except the final avgpool + fc
+        # Use all layers except avgpool + fc
         self.feature_extractor = nn.Sequential(*list(resnet.children())[:-2])
 
-        # ResNet-50 final feature dimension before FC
+        # Optionally freeze backbone
+        if freeze_backbone:
+            for param in self.feature_extractor.parameters():
+                param.requires_grad = False
+
         in_features = resnet.fc.in_features
 
-        # Add adaptive pooling for flexible input sizes
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
 
-        # Final projection layer
-        self.fc = nn.Linear(in_features, output_dim)
+        # Projection head
+        self.fc1 = nn.Linear(in_features, output_dim)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Linear(output_dim, output_dim)
+        self.fc3 = nn.Linear(output_dim, output_dim)
 
     def forward(self, x):
         x = self.feature_extractor(x)        # (B, C, H, W)
         x = self.pool(x)                     # (B, C, 1, 1)
         x = torch.flatten(x, start_dim=1)    # (B, C)
-        x = self.fc(x)                       # (B, output_dim)
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        x = self.relu(x)
+        x = self.fc3(x)
         return x
+
 
 # Resize depth to something smaller, efficientnet-B4 has a 380x380 input, so something similar or smaller
 class DepthEncoder(nn.Module):
@@ -80,7 +91,7 @@ class ActionEncoder(nn.Module):
         return x
 
 class Model(nn.Module):
-    def __init__(self, rgb_dim=128, depth_dim=128, weight_dim=16, action_dim=32, hidden_dims=[256, 256, 128, 128]):
+    def __init__(self, rgb_dim=128, depth_dim=128, weight_dim=16, action_dim=32, hidden_dims=[256, 128, 128]):
         super().__init__()
         self.rgb_encoder = RGBEncoder(output_dim=rgb_dim)
         self.depth_encoder = DepthEncoder(output_dim=depth_dim)

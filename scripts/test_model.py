@@ -211,3 +211,34 @@ class ActionPlanner(Node):
         print("---------------------------------------")
         print(f"Desired Pickup: {desired_pick_amount}")
         print(f"Actual Pickup: {weight_start - weight_end}")
+
+def main(args=None):
+    rclpy.init(args=args)
+
+    try:
+        planner = ActionPlanner()
+
+        while True:
+            try:
+                pick_bin = int(input("Enter pick bin ID (int): "))
+                place_bin = int(input("Enter place bin ID (int): "))
+                desired_amount = float(input("Enter desired pickup amount (float): "))
+            except ValueError:
+                print("Invalid input. Please enter numeric values.")
+                continue
+
+            try:
+                planner.perform_test(pick_bin, place_bin, desired_amount)
+            except Exception as e:
+                print(f"Error during perform_test: {e}")
+
+            cont = input("Do you want to run another test? (y/n): ").lower()
+            if cont != 'y':
+                break
+
+    finally:
+        planner.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
