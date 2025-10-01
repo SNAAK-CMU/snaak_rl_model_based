@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 
+
 class RGBEncoder(nn.Module):
     def __init__(self, output_dim=128):
         super().__init__()

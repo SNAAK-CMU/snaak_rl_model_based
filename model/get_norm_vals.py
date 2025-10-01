@@ -2,7 +2,7 @@ from torch.utils.data import DataLoader
 from load_data import NPZSequenceDataset
 import torch
 
-dataset = NPZSequenceDataset("rl_dataset")
+dataset = NPZSequenceDataset("../rl_dataset")
 loader = DataLoader(dataset, batch_size=64, shuffle=False)
 
 weights = []
