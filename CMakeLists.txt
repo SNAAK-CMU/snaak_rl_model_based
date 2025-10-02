@@ -12,14 +12,9 @@ find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclpy REQUIRED)
 
-find_package(rosidl_default_generators REQUIRED)
-
-rosidl_generate_interfaces(${PROJECT_NAME}
-  "srv/ToggleRosbag.srv"
-)
-
 install(PROGRAMS
   scripts/test_model.py
+  model/model.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

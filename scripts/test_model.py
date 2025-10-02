@@ -1,7 +1,8 @@
+#!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
 import torch
-from model.model import Model
+from model import Model
 from rclpy.action import ActionClient
 from snaak_manipulation.action import ExecutePolicy, PlaceInBin, ReturnHome, ExecuteTrajectory
 from sensor_msgs.msg import Image
@@ -14,8 +15,24 @@ from rclpy.task import Future
 from cv_bridge import CvBridge
 from action_msgs.msg import GoalStatus
 import numpy as np
+import torchvision.transforms.functional as TF
 
-MODEL_PATH = "../model/model.pth"
+WEIGHT_MEAN = 104.62
+WEIGHT_STD = 61.09
+ACTION_MEAN = np.array([-0.0002, 0.0003, 0.0021, 0.0007, 0.0019, -0.0328]) # uniform sampling
+ACTION_STD = np.array([0.0193, 0.0540, 0.0317, 0.0193, 0.0539, 0.0147])
+IMAGENET_MEAN = [0.485, 0.456, 0.406] # keep these for now, in future can recompute with own dataset
+IMAGENET_STD  = [0.229, 0.224, 0.225]
+DEPTH_MEAN = [337.65]
+DEPTH_STD = [66.147]
+MODEL_PATH = "/home/snaak/Documents/manipulation_ws/src/snaak_rl_model_based/model/model.pth"
+
+BIN_WIDTH = 0.140
+BIN_LENGTH = 0.240
+BIN_DEPTH = 0.046
+A1_MAX_HEIGHT = 0.050
+ACTION_MEAN = np.array([-0.0002, 0.0003, 0.0021, 0.0007, 0.0019, -0.0328]) # uniform sampling
+ACTION_STD = np.array([0.0193, 0.0540, 0.0317, 0.0193, 0.0539, 0.0147])
 
 class ActionPlanner(Node):
     def __init__(self):
@@ -23,7 +40,8 @@ class ActionPlanner(Node):
 
         self.get_logger().info("Loading model...")
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = self.load_model(MODEL_FILEPATH).to(self.device)
+        print(self.device)
+        self.model = self.load_model(MODEL_PATH).to(self.device)
         self.model.eval()
 
         self.action_dim = 6
@@ -50,6 +68,7 @@ class ActionPlanner(Node):
         self.prev_action = np.zeros(self.action_dim)
         time.sleep(0.5)
         self.reset_arm()
+        self.start = True
 
     def reset_arm(self):
         self.reset_arm_client.wait_for_server()
@@ -65,19 +84,27 @@ class ActionPlanner(Node):
         get_result_future = goal_handle.get_result_async()
         rclpy.spin_until_future_complete(self, get_result_future)
         result = get_result_future.result()
-        if not result.status == 3:  # GoalStatus.STATUS_SUCCEEDED
+        if not GoalStatus.STATUS_SUCCEEDED:
             self.get_logger().error("Return Home Goal Failed.")
             raise RuntimeError("Return Home Goal Failed.")
 
-    def load_model(self, checkpoint_path):
-        model = Model()
-        state_dict = torch.load(checkpoint_path, map_location="cpu")
+    def load_model(self, model_path):
+        checkpoint = torch.load(model_path, map_location="cpu")
+
+        if 'model_state_dict' in checkpoint:
+            state_dict = checkpoint['model_state_dict']
+        else:
+            state_dict = checkpoint  # assume it's a raw state_dict
+
+        model = Model()  # your actual model architecture
         model.load_state_dict(state_dict)
         return model
-
+    
     def get_action(self, rgb, depth, weight_curr, weight_goal, method="cem"):
         if method == "gd":
-            action = torch.tensor(self.prev_action, dtype=torch.float32, device=self.device, requires_grad=True).unsqueeze(0)
+            action = np.random.randn(self.action_dim) * ACTION_STD + ACTION_MEAN
+            action = torch.tensor(self.prev_action, dtype=torch.float32, device=self.device).unsqueeze(0)
+            action = action.detach().requires_grad_() # need to make sure tensor is leaf (created by user)
             opt = torch.optim.Adam([action], lr=0.05)
             for _ in range(50):
                 opt.zero_grad()
@@ -88,10 +115,13 @@ class ActionPlanner(Node):
             return action.detach().cpu().numpy()
 
         elif method == "cem":
-            N, K, iters = 256, 32, 5
-            mu = torch.from_numpy(self.prev_action).to(self.device)
+            N, K, iters = 256, 32, 15
+            #mu = torch.from_numpy(self.prev_action).to(self.device).float()
+            mu = torch.zeros(self.action_dim, device=self.device)
             sigma = torch.ones_like(mu) * 0.5
+            samples = mu + sigma * torch.randn(N, self.action_dim, device=self.device).float()
             for _ in range(iters):
+                print(f"Step: {_}")
                 samples = mu + sigma * torch.randn(N, self.action_dim, device=self.device)
                 costs = []
                 for s in samples:
@@ -123,7 +153,24 @@ class ActionPlanner(Node):
         return future.result()
 
     def perform_test(self, pick_bin, place_bin, desired_pick_amount):
+        if self.start:
+            self.execute_trajectory_client.wait_for_server()
+            goal_msg = ExecuteTrajectory.Goal()
+            goal_msg.desired_location = f"bin{pick_bin}"
+            send_goal_future = self.execute_trajectory_client.send_goal_async(goal_msg)
+            rclpy.spin_until_future_complete(self, send_goal_future)
 
+            goal_handle = send_goal_future.result()
+            if not goal_handle.accepted:
+                self.get_logger().error("Execute Trajectory Goal Rejected.")
+                raise RuntimeError("Execute Trajectory Goal Rejected.")
+            get_result_future = goal_handle.get_result_async()
+            rclpy.spin_until_future_complete(self, get_result_future)
+            result = get_result_future.result()
+            if not result.status == GoalStatus.STATUS_SUCCEEDED:
+                self.get_logger().error("Execute Trajectory Goal Failed.")
+                raise RuntimeError("Execute Trajectory Goal Failed.")
+            self.start = False
         rgb_msg = self.get_latest_image("/camera/camera/color/image_rect_raw")
         depth_msg = self.get_latest_image("/camera/camera/depth/image_rect_raw")
 
@@ -135,8 +182,12 @@ class ActionPlanner(Node):
         depth = self.bridge.imgmsg_to_cv2(depth_msg, "32FC1")
 
         rgb_tensor = torch.from_numpy(rgb).permute(2, 0, 1).float().unsqueeze(0).to(self.device)
-        depth_tensor = torch.from_numpy(depth).unsqueeze(0).unsqueeze(0).float().to(self.device)
+        rgb_tensor = rgb_tensor / 255.0  # scale to [0,1]
+        rgb_tensor = TF.normalize(rgb_tensor, mean=IMAGENET_MEAN, std=IMAGENET_STD)
 
+         # For depth (likely 2D): add channel dim -> (1, 1, H, W)
+        depth_tensor = torch.from_numpy(depth).unsqueeze(0).unsqueeze(0).float().to(self.device)
+        depth_tensor = TF.normalize(depth_tensor, DEPTH_MEAN, DEPTH_STD)
         read_weight = ReadWeight.Request()
 
         if (pick_bin == 4) or (pick_bin == 5) or (pick_bin == 6):
@@ -144,16 +195,23 @@ class ActionPlanner(Node):
         else:
             future = self.right_weight_bins_client.call_async(read_weight)        
         rclpy.spin_until_future_complete(self, future)
-        weight_start = future.result().weight
-        weight_curr = torch.tensor([weight_start], device=self.device)
-        weight_goal = torch.tensor([weight_curr - desired_pick_amount], device=self.device)
+        weight_start = future.result().weight.data
+        weight_curr = torch.tensor([float(weight_start)], dtype=torch.float32, device=self.device).unsqueeze(0)
+        weight_curr = (weight_curr - WEIGHT_MEAN) / WEIGHT_STD
+        weight_goal = torch.tensor([weight_curr.item() - desired_pick_amount], dtype=torch.float32, device=self.device).unsqueeze(0)
+        weight_goal = (weight_goal - WEIGHT_MEAN) / WEIGHT_STD
 
-        action = self.get_action(rgb_tensor, depth_tensor, weight_curr, weight_goal, method="cem")
+        action = self.get_action(rgb_tensor, depth_tensor, weight_curr, weight_goal, method="gd")
+        action = action * ACTION_STD + ACTION_MEAN  # unnormalize
+        action = action.flatten()
+        action[:3] = np.clip(action[:3], -np.array([BIN_LENGTH/2, BIN_WIDTH/2, BIN_DEPTH]), np.array([BIN_LENGTH/2, BIN_WIDTH/2, A1_MAX_HEIGHT]))
+        action[3:] = np.clip(action[3:], -np.array([BIN_LENGTH/2, BIN_WIDTH/2, BIN_DEPTH]), np.array([BIN_LENGTH/2, BIN_WIDTH/2, 0]))
         self.prev_action = action
 
         # Execute Policy
         goal_msg = ExecutePolicy.Goal()
-        goal_msg.actions = action
+        goal_msg.actions = action.tolist()
+        self.get_logger().info(f"Executing action: {goal_msg.actions}")
         goal_msg.bin_id = pick_bin
 
         send_goal_future = self.execute_policy_client.send_goal_async(
@@ -206,7 +264,7 @@ class ActionPlanner(Node):
             future = self.right_weight_bins_client.call_async(read_weight)        
         rclpy.spin_until_future_complete(self, future)
         
-        weight_end  = future.result().weight
+        weight_end  = future.result().weight.data
 
         print("---------------------------------------")
         print(f"Desired Pickup: {desired_pick_amount}")
@@ -219,22 +277,22 @@ def main(args=None):
         planner = ActionPlanner()
 
         while True:
-            try:
-                pick_bin = int(input("Enter pick bin ID (int): "))
-                place_bin = int(input("Enter place bin ID (int): "))
-                desired_amount = float(input("Enter desired pickup amount (float): "))
-            except ValueError:
-                print("Invalid input. Please enter numeric values.")
-                continue
+            #try:
+            pick_bin = int(input("Enter pick bin ID (int): "))
+            place_bin = int(input("Enter place bin ID (int): "))
+            desired_amount = float(input("Enter desired pickup amount (float): "))
+        #except ValueError:
+            #print("Invalid input. Please enter numeric values.")
+            #continue
 
-            try:
-                planner.perform_test(pick_bin, place_bin, desired_amount)
-            except Exception as e:
-                print(f"Error during perform_test: {e}")
+            #try:
+            planner.perform_test(pick_bin, place_bin, desired_amount)
+            # except Exception as e:
+            #     print(f"Error during perform_test: {e}")
 
-            cont = input("Do you want to run another test? (y/n): ").lower()
-            if cont != 'y':
-                break
+            # cont = input("Do you want to run another test? (y/n): ").lower()
+            # if cont != 'y':
+            #     break
 
     finally:
         planner.destroy_node()
