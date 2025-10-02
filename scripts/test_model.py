@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from re import A
 import rclpy
 from rclpy.node import Node
 import torch
@@ -31,6 +32,8 @@ MODEL_PATH = "/home/snaak/Documents/manipulation_ws/src/snaak_rl_model_based/mod
 BIN_WIDTH = 0.140
 BIN_LENGTH = 0.240
 BIN_DEPTH = 0.046
+END_EFFECTOR_RADIUS = 0.045
+
 A1_MAX_HEIGHT = 0.050
 ACTION_MEAN = np.array([-0.0002, 0.0003, 0.0021, 0.0007, 0.0019, -0.0328]) # uniform sampling
 ACTION_STD = np.array([0.0193, 0.0540, 0.0317, 0.0193, 0.0539, 0.0147])
@@ -165,7 +168,7 @@ class ActionPlanner(Node):
             action = torch.tensor(self.prev_action, dtype=torch.float32, device=self.device).unsqueeze(0)
             action = action.detach().requires_grad_() # need to make sure tensor is leaf (created by user)
             opt = torch.optim.Adam([action], lr=0.05)
-            for _ in range(50):
+            for _ in range(100):
                 opt.zero_grad()
                 weight_pred = self.model(rgb, depth, weight_curr, action)
                 loss = ((weight_pred - weight_goal) ** 2).mean()
@@ -181,7 +184,7 @@ class ActionPlanner(Node):
             samples = mu + sigma * torch.randn(N, self.action_dim, device=self.device).float()
             for _ in range(iters):
                 print(f"Step: {_}")
-                samples = mu + sigma * torch.randn(N, self.action_dim, device=self.device)
+                samples = mu + sigma * torch.randn(N, self.action_dim, device=self.device) #* ACTION_STD + ACTION_MEAN
                 costs = []
                 for s in samples:
                     pred = self.model(rgb, depth, weight_curr, s.unsqueeze(0))
@@ -242,7 +245,8 @@ class ActionPlanner(Node):
         rotate = ((pick_bin - 1) // 3 > 0)
         rgb = self.crop(rgb, pick_bin, rotate=rotate)
         depth = self.crop(depth, pick_bin, rotate=rotate)
-
+        cv2.imshow("RGB", rgb)
+        cv2.waitKey(0)
         rgb_tensor = torch.from_numpy(rgb).permute(2, 0, 1).float().unsqueeze(0).to(self.device)
         rgb_tensor = rgb_tensor / 255.0  # scale to [0,1]
         rgb_tensor = TF.normalize(rgb_tensor, mean=IMAGENET_MEAN, std=IMAGENET_STD)
@@ -263,17 +267,18 @@ class ActionPlanner(Node):
         weight_goal = torch.tensor([weight_curr.item() - desired_pick_amount], dtype=torch.float32, device=self.device).unsqueeze(0)
         weight_goal = (weight_goal - WEIGHT_MEAN) / WEIGHT_STD
 
-        action = self.get_action(rgb_tensor, depth_tensor, weight_curr, weight_goal, method="gd")
+        action = self.get_action(rgb_tensor, depth_tensor, weight_curr, weight_goal, method="cem")
         action = action * ACTION_STD + ACTION_MEAN  # unnormalize
         action = action.flatten()
-        action[:3] = np.clip(action[:3], -np.array([BIN_LENGTH/2, BIN_WIDTH/2, BIN_DEPTH]), np.array([BIN_LENGTH/2, BIN_WIDTH/2, A1_MAX_HEIGHT]))
-        action[3:] = np.clip(action[3:], -np.array([BIN_LENGTH/2, BIN_WIDTH/2, BIN_DEPTH]), np.array([BIN_LENGTH/2, BIN_WIDTH/2, 0]))
+        self.get_logger().info(f"Executing action: {action}")
+
+        action[:3] = np.clip(action[:3], -np.array([BIN_WIDTH/2+END_EFFECTOR_RADIUS, BIN_LENGTH/2+END_EFFECTOR_RADIUS, BIN_DEPTH]), np.array([BIN_WIDTH/2-END_EFFECTOR_RADIUS, BIN_LENGTH/2-END_EFFECTOR_RADIUS, A1_MAX_HEIGHT]))
+        action[3:] = np.clip(action[3:], -np.array([BIN_WIDTH/2+END_EFFECTOR_RADIUS, BIN_LENGTH/2+END_EFFECTOR_RADIUS, BIN_DEPTH]), np.array([BIN_WIDTH/2-END_EFFECTOR_RADIUS, BIN_LENGTH/2-END_EFFECTOR_RADIUS, 0]))
         self.prev_action = action
 
         # Execute Policy
         goal_msg = ExecutePolicy.Goal()
         goal_msg.actions = action.tolist()
-        self.get_logger().info(f"Executing action: {goal_msg.actions}")
         goal_msg.bin_id = pick_bin
 
         send_goal_future = self.execute_policy_client.send_goal_async(
