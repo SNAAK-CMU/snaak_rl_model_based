@@ -124,7 +124,7 @@ class ActionPlanner(Node):
         # print(f"Cropping to bin {bin_number} with coords: ({xmin}, {ymin}), ({xmax}, {ymax}), rotation: {rotate}, shape : {cropped.shape}")
         if rotate:
             #print("Rotating image for bin", bin_number)
-            cropped = cv2.rotate(cropped, cv2.ROTATE_90_CLOCKWISE)
+            cropped = cv2.rotate(cropped, cv2.ROTATE_90_COUNTERCLOCKWISE)
         cropped = cv2.resize(cropped, (224, 340))
         #cv2.imshow("Image", cropped)
         #print(cropped.shape)
