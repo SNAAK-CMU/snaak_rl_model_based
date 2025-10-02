@@ -7,7 +7,7 @@ from load_data import NPZSequenceDataset
 from tqdm import tqdm
 
 EPOCHS = 70
-BATCH_SIZE = 8
+BATCH_SIZE = 12
 DATA_DIR = "../rl_dataset"
 LR = 1e-3
 CHECKPOINT_PATH = "model.pth"

@@ -94,7 +94,7 @@ class NPZSequenceDataset(Dataset):
                     print("Error loading", f_t)
 
                 # Only keep transition if weight decreases or stays the same
-                if weight_t1 <= weight_t:
+                if weight_t1 <= weight_t * 1.05 and weight_t - weight_t1 <= 40:
                     self.samples.append((f_t, f_t1, bin_number))
                            
     def crop(self, image, bin_number, rotate=False):
