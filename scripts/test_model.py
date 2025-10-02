@@ -16,6 +16,7 @@ from cv_bridge import CvBridge
 from action_msgs.msg import GoalStatus
 import numpy as np
 import torchvision.transforms.functional as TF
+import cv2
 
 WEIGHT_MEAN = 104.62
 WEIGHT_STD = 61.09
@@ -34,6 +35,50 @@ A1_MAX_HEIGHT = 0.050
 ACTION_MEAN = np.array([-0.0002, 0.0003, 0.0021, 0.0007, 0.0019, -0.0328]) # uniform sampling
 ACTION_STD = np.array([0.0193, 0.0540, 0.0317, 0.0193, 0.0539, 0.0147])
 
+BIN2_XMIN = 250
+BIN2_YMIN = 0
+BIN2_XMAX = 470
+BIN2_YMAX = 340
+
+# Bin1 coords
+BIN1_XMIN = 240
+BIN1_YMIN = 0
+BIN1_XMAX = 450
+BIN1_YMAX = 330
+
+# Bin3 coords 
+BIN3_XMIN = 355 
+BIN3_YMIN = 0 
+BIN3_XMAX = 565  
+BIN3_YMAX = 330 
+
+# Bin 4 coords
+BIN4_XMIN = 81
+BIN4_YMIN = 66
+BIN4_XMAX = 440
+BIN4_YMAX = 297
+
+# Bin 5 coords
+BIN5_XMIN = 67
+BIN5_YMIN = 72
+BIN5_XMAX = 434
+BIN5_YMAX = 305
+
+# Bin 6 coords
+BIN6_XMIN = 69
+BIN6_YMIN = 94
+BIN6_XMAX = 433
+BIN6_YMAX = 316
+
+# BIN_COORDS
+BIN_COORDS = [
+    [BIN1_XMIN, BIN1_YMIN, BIN1_XMAX, BIN1_YMAX],
+    [BIN2_XMIN, BIN2_YMIN, BIN2_XMAX, BIN2_YMAX],
+    [BIN3_XMIN, BIN3_YMIN, BIN3_XMAX, BIN3_YMAX],
+    [BIN4_XMIN, BIN4_YMIN, BIN4_XMAX, BIN4_YMAX],
+    [BIN5_XMIN, BIN5_YMIN, BIN5_XMAX, BIN5_YMAX],
+    [BIN6_XMIN, BIN6_YMIN, BIN6_XMAX, BIN6_YMAX],
+]
 class ActionPlanner(Node):
     def __init__(self):
         super().__init__('action_planner')
@@ -69,6 +114,20 @@ class ActionPlanner(Node):
         time.sleep(0.5)
         self.reset_arm()
         self.start = True
+
+    def crop(self, image, bin_number, rotate=False):
+        xmin, ymin, xmax, ymax = BIN_COORDS[bin_number-1]
+        cropped = image[ymin:ymax, xmin:xmax]
+        # print(f"Cropping to bin {bin_number} with coords: ({xmin}, {ymin}), ({xmax}, {ymax}), rotation: {rotate}, shape : {cropped.shape}")
+        if rotate:
+            #print("Rotating image for bin", bin_number)
+            cropped = cv2.rotate(cropped, cv2.ROTATE_90_CLOCKWISE)
+        cropped = cv2.resize(cropped, (224, 340))
+        #cv2.imshow("Image", cropped)
+        #print(cropped.shape)
+
+        #cv2.waitKey(0)
+        return cropped
 
     def reset_arm(self):
         self.reset_arm_client.wait_for_server()
@@ -180,6 +239,9 @@ class ActionPlanner(Node):
 
         rgb = self.bridge.imgmsg_to_cv2(rgb_msg, "bgr8")
         depth = self.bridge.imgmsg_to_cv2(depth_msg, "32FC1")
+        rotate = ((pick_bin - 1) // 3 > 0)
+        rgb = self.crop(rgb, pick_bin, rotate=rotate)
+        depth = self.crop(depth, pick_bin, rotate=rotate)
 
         rgb_tensor = torch.from_numpy(rgb).permute(2, 0, 1).float().unsqueeze(0).to(self.device)
         rgb_tensor = rgb_tensor / 255.0  # scale to [0,1]
