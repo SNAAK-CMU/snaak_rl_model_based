@@ -165,7 +165,7 @@ class ActionPlanner(Node):
     def get_action(self, rgb, depth, weight_curr, weight_goal, method="cem"):
         if method == "gd":
             action = np.random.randn(self.action_dim) * ACTION_STD + ACTION_MEAN
-            action = torch.tensor(self.prev_action, dtype=torch.float32, device=self.device).unsqueeze(0)
+            action = torch.tensor(action, dtype=torch.float32, device=self.device).unsqueeze(0)
             action = action.detach().requires_grad_() # need to make sure tensor is leaf (created by user)
             opt = torch.optim.Adam([action], lr=0.05)
             for _ in range(100):
@@ -215,24 +215,24 @@ class ActionPlanner(Node):
         return future.result()
 
     def perform_test(self, pick_bin, place_bin, desired_pick_amount):
-        if self.start:
-            self.execute_trajectory_client.wait_for_server()
-            goal_msg = ExecuteTrajectory.Goal()
-            goal_msg.desired_location = f"bin{pick_bin}"
-            send_goal_future = self.execute_trajectory_client.send_goal_async(goal_msg)
-            rclpy.spin_until_future_complete(self, send_goal_future)
+        #if self.start:
+        self.execute_trajectory_client.wait_for_server()
+        goal_msg = ExecuteTrajectory.Goal()
+        goal_msg.desired_location = f"bin{pick_bin}"
+        send_goal_future = self.execute_trajectory_client.send_goal_async(goal_msg)
+        rclpy.spin_until_future_complete(self, send_goal_future)
 
-            goal_handle = send_goal_future.result()
-            if not goal_handle.accepted:
-                self.get_logger().error("Execute Trajectory Goal Rejected.")
-                raise RuntimeError("Execute Trajectory Goal Rejected.")
-            get_result_future = goal_handle.get_result_async()
-            rclpy.spin_until_future_complete(self, get_result_future)
-            result = get_result_future.result()
-            if not result.status == GoalStatus.STATUS_SUCCEEDED:
-                self.get_logger().error("Execute Trajectory Goal Failed.")
-                raise RuntimeError("Execute Trajectory Goal Failed.")
-            self.start = False
+        goal_handle = send_goal_future.result()
+        if not goal_handle.accepted:
+            self.get_logger().error("Execute Trajectory Goal Rejected.")
+            raise RuntimeError("Execute Trajectory Goal Rejected.")
+        get_result_future = goal_handle.get_result_async()
+        rclpy.spin_until_future_complete(self, get_result_future)
+        result = get_result_future.result()
+        if not result.status == GoalStatus.STATUS_SUCCEEDED:
+            self.get_logger().error("Execute Trajectory Goal Failed.")
+            raise RuntimeError("Execute Trajectory Goal Failed.")
+            #self.start = False
         rgb_msg = self.get_latest_image("/camera/camera/color/image_rect_raw")
         depth_msg = self.get_latest_image("/camera/camera/depth/image_rect_raw")
 
@@ -245,8 +245,8 @@ class ActionPlanner(Node):
         rotate = ((pick_bin - 1) // 3 > 0)
         rgb = self.crop(rgb, pick_bin, rotate=rotate)
         depth = self.crop(depth, pick_bin, rotate=rotate)
-        cv2.imshow("RGB", rgb)
-        cv2.waitKey(0)
+        # cv2.imshow("RGB", rgb)
+        # cv2.waitKey(0)
         rgb_tensor = torch.from_numpy(rgb).permute(2, 0, 1).float().unsqueeze(0).to(self.device)
         rgb_tensor = rgb_tensor / 255.0  # scale to [0,1]
         rgb_tensor = TF.normalize(rgb_tensor, mean=IMAGENET_MEAN, std=IMAGENET_STD)
@@ -267,13 +267,13 @@ class ActionPlanner(Node):
         weight_goal = torch.tensor([weight_curr.item() - desired_pick_amount], dtype=torch.float32, device=self.device).unsqueeze(0)
         weight_goal = (weight_goal - WEIGHT_MEAN) / WEIGHT_STD
 
-        action = self.get_action(rgb_tensor, depth_tensor, weight_curr, weight_goal, method="cem")
+        action = self.get_action(rgb_tensor, depth_tensor, weight_curr, weight_goal, method="gd")
         action = action * ACTION_STD + ACTION_MEAN  # unnormalize
         action = action.flatten()
         self.get_logger().info(f"Executing action: {action}")
 
-        action[:3] = np.clip(action[:3], -np.array([BIN_WIDTH/2+END_EFFECTOR_RADIUS, BIN_LENGTH/2+END_EFFECTOR_RADIUS, BIN_DEPTH]), np.array([BIN_WIDTH/2-END_EFFECTOR_RADIUS, BIN_LENGTH/2-END_EFFECTOR_RADIUS, A1_MAX_HEIGHT]))
-        action[3:] = np.clip(action[3:], -np.array([BIN_WIDTH/2+END_EFFECTOR_RADIUS, BIN_LENGTH/2+END_EFFECTOR_RADIUS, BIN_DEPTH]), np.array([BIN_WIDTH/2-END_EFFECTOR_RADIUS, BIN_LENGTH/2-END_EFFECTOR_RADIUS, 0]))
+        action[:3] = np.clip(action[:3], -np.array([BIN_WIDTH/2-END_EFFECTOR_RADIUS, BIN_LENGTH/2-END_EFFECTOR_RADIUS, BIN_DEPTH]), np.array([BIN_WIDTH/2-END_EFFECTOR_RADIUS, BIN_LENGTH/2-END_EFFECTOR_RADIUS, A1_MAX_HEIGHT]))
+        action[3:] = np.clip(action[3:], -np.array([BIN_WIDTH/2-END_EFFECTOR_RADIUS, BIN_LENGTH/2-END_EFFECTOR_RADIUS, BIN_DEPTH]), np.array([BIN_WIDTH/2-END_EFFECTOR_RADIUS, BIN_LENGTH/2-END_EFFECTOR_RADIUS, 0]))
         self.prev_action = action
 
         # Execute Policy
