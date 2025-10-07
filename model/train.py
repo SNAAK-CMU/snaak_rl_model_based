@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 EPOCHS = 70
 BATCH_SIZE = 12
-DATA_DIR = "../rl_dataset"
+DATA_DIR = "/home/student/Documents/ani/snaak_rl_model_based/rl_dataset"
 LR = 1e-3
 CHECKPOINT_PATH = "model.pth"
 
@@ -23,14 +23,26 @@ if __name__ == "__main__":
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=LR)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode='min',              # or 'max' if you're maximizing a metric
+        factor=0.5,              # multiply LR by this value
+        patience=3,              # number of epochs to wait before reducing
+        verbose=True,            # logs LR changes
+        min_lr=1e-6              # don't go below this LR
+    )
 
     # Dataset + split
     dataset = NPZSequenceDataset(DATA_DIR)
+
+    # instead of spliting randomly, discretize based on weight picked up, and split into
+    # equal parts
+
     train_size = int(0.85 * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-    train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True, drop_last=True)
     val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
     best_val_loss = float("inf")
@@ -76,7 +88,7 @@ if __name__ == "__main__":
                 torch.cuda.empty_cache()
 
         val_loss /= len(val_dataloader.dataset)
-
+        scheduler.step(val_loss)  # <-- this updates LR if needed
         print(f"Epoch {epoch+1:03d}/{EPOCHS} | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
 
         # ---------------- CHECKPOINT ----------------
